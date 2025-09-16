@@ -6,6 +6,10 @@ export async function POST(req: Request) {
   const sig = req.headers.get("stripe-signature") as string;
 
   let event;
+  // ❌ buggy
+  const body = await req.json();
+  const event = stripe.webhooks.constructEvent(body, signature, endpointSecret);
+
 
   try {
     event = stripe.webhooks.constructEvent(
@@ -20,6 +24,21 @@ export async function POST(req: Request) {
       { status: 400 }
     );
   }
+
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object as Stripe.Checkout.Session;
+  
+    // ❌ Bug: No check for repeated Stripe events
+    await db.insert(subscriptions).values({
+      userId: session.client_reference_id,   // assume you store user ID here
+      stripeEventId: event.id,               // should be UNIQUE but isn’t
+      plan: session.metadata?.plan || 'starter',
+      createdAt: new Date(),
+    });
+  
+    console.log('Inserted subscription for event', event.id);
+  }
+  
 
   switch (event.type) {
     case "customer.subscription.created":
